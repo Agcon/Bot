@@ -18,6 +18,11 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import numpy as np
 from googletrans import Translator
 
+def normalize_date(a):
+    if a < 10: a = "0" + str(a)
+    a = str(a)
+    return a
+
 def shedule_parse():
     url = "https://www.mirea.ru/schedule/"
     page = requests.get(url)
@@ -36,12 +41,9 @@ def shedule_parse():
             resp = requests.get(current_link)
             f.write(resp.content)
             
-def get_schedule(number_of_group, weekday, evenness):
-    if (weekday == 6): return ["Иди нахуй"]
-    book = openpyxl.load_workbook("D:/PythonProjects/Oznakom/file.xlsx") 
-    sheet = book.active 
-    num_cols = sheet.max_column 
-    num_rows = sheet.max_row 
+def get_schedule(number_of_group, weekday, evenness, book):
+    sheet = book
+    num_cols = sheet.max_column  
     row_index = 2
     column_index = 6
     cell = sheet.cell(row = 2, column = 6).value
@@ -69,54 +71,85 @@ def get_day_of_week(day):
     if (day.lower() == "эта неделя" or day.lower() == "следующая неделя"): return 0
     return DAYS[day.lower()]
 
-def get_week_schedule(number_of_group, day):
+def get_week_schedule(number_of_group, day, book):
     DAYS = {0: "Понедельник", 1: "Вторник", 2: "Среда", 3: "Четверг", 4: "Пятница", 5: "Суббота"}
     even = get_evenness(day)
     s = ""
     for i in range(6):
         s += DAYS[i] + ":" + "\n"
-        schedule = get_schedule(number_of_group, i, even)
+        schedule = get_schedule(number_of_group, i, even, book)
         for j in range(len(schedule)):
             s += str(j + 1) + ") "
             if (schedule[j] == None): s += "-----" + "\n"
             else: s += str(schedule[j]) + "\n"
     return s
 
-def get_correct_schedule(day, number_of_group):
+def get_correct_schedule(day, number_of_group, book):
     day1 = get_day_of_week(day)
     if (day.lower() == "сегодня"):
-        schedule = get_schedule(number_of_group, day1, get_evenness(datetime.today()))
+        schedule = get_schedule(number_of_group, day1, get_evenness(datetime.today()), book)
         s = ""
         for i in range(len(schedule)):
             s += str(i + 1) + ") "
-            if (schedule[i] == None): s += "-----" + "\n"
+            if (schedule[i] == None): s += "--" + "\n"
             else: s += str(schedule[i]) + "\n"
         return s
     if (day.lower() == "завтра"):
-        schedule = get_schedule(number_of_group, day1, get_evenness(datetime.today() + timedelta(1)))
+        schedule = get_schedule(number_of_group, day1, get_evenness(datetime.today() + timedelta(1)), book)
         s = ""
         for i in range(len(schedule)):
             s += str(i + 1) + ") "
-            if (schedule[i] == None): s += "-----" + "\n"
+            if (schedule[i] == None): s += "--" + "\n"
             else: s += str(schedule[i]) + "\n"
         return s
     if (day.lower() == "эта неделя"):
-        return get_week_schedule(number_of_group, datetime.today())
+        return get_week_schedule(number_of_group, datetime.today(), book)
     if (day.lower() == "следующая неделя"):
-        return get_week_schedule(number_of_group, datetime.today() + timedelta(7))
-    schedule = get_schedule(number_of_group, get_day_of_week(day), 0)
+        return get_week_schedule(number_of_group, datetime.today() + timedelta(7), book)
+    schedule = get_schedule(number_of_group, get_day_of_week(day), 0, book)
     s = "Расписание для нечётной недели:" + "\n"
     for i in range(len(schedule)):
             s += str(i + 1) + ") "
-            if (schedule[i] == None): s += "-----" + "\n"
+            if (schedule[i] == None): s += "--" + "\n"
             else: s += str(schedule[i]) + "\n"
     s += "Расписание для чётной недели:" + "\n"
-    schedule = get_schedule(number_of_group, get_day_of_week(day), 1)
+    schedule = get_schedule(number_of_group, get_day_of_week(day), 1, book)
     for i in range(len(schedule)):
             s += str(i + 1) + ") "
-            if (schedule[i] == None): s += "-----" + "\n"
+            if (schedule[i] == None): s += "--" + "\n"
             else: s += str(schedule[i]) + "\n"
     return s
+
+def call_keyboard_teacher(keyboard, vk, event):
+    keyboard.add_button('на сегодня', color=VkKeyboardColor.POSITIVE)
+    keyboard.add_button('на завтра', color=VkKeyboardColor.NEGATIVE)
+    keyboard.add_line()
+    keyboard.add_button('на эту неделю', color=VkKeyboardColor.PRIMARY)
+    keyboard.add_button('на следующую неделю', color=VkKeyboardColor.PRIMARY)
+    ms = 'Выберите варианты'
+    vk.messages.send(user_id = event.user_id, random_id = get_random_id(), keyboard=keyboard.get_keyboard(), message=ms)
+
+def get_teacher_schedule(name, book):
+    full_name = ''
+    schedule = [[['--', '--', '--', '--', '--', '--'] for _ in range(6)] for i in range(2)]
+    for i in range(4, book.max_row):
+        for j in range(8, book.max_column):
+            try:
+                if name.lower() in book.cell(i, j).value.lower():
+                    full_name = book.cell(i, j).value
+                    schedule[(i+1)%2][(i - 4) // 12][(i - 2) // 2 % 6 - 1] = ", ".join([(book.cell(i, j-2).value), (book.cell(i, j-1).value), (book.cell(2, j-2).value), (book.cell(i, j+1).value)]) 
+            except AttributeError:
+                pass
+    return [full_name, schedule]
+
+def get_correct_teacher_schedule(name, book, day):
+    full_name, schedule = get_teacher_schedule(name, book)
+    information = ""
+    evenness = get_evenness(day)
+    weekday = day.weekday()
+    for i in range(6):
+        information += "{}) ".format(str(i + 1)) + schedule[evenness][weekday][i] + "\n"
+    return [information, full_name]
 
 def bofort_scale(speed):
     if 0 <= speed <= 0.2: return "штиль"
@@ -139,22 +172,6 @@ def rumb(deg):
     elif deg <= 247.5: return "юго-западный"
     elif deg <= 292.5: return "западный"
     return "северо-западный"
-
-def get_weather_now():
-    translator = Translator()
-    weather_key = "1e7d1c94703c5b863a60ea656e79de92"
-    response = requests.get("http://api.openweathermap.org/data/2.5/weather?q=moscow&appid=1e7d1c94703c5b863a60ea656e79de92&lang=ru&units=metric")
-    info = response.json()
-    information = ""
-    result = translator.translate(info["weather"][0]["main"], src="en", dest="ru").text
-    information += "Погода в Москве: " + result + "\n"
-    result = info["weather"][0]["description"]
-    information += result + ", " + "температура: " + str(round(info["main"]["temp_min"])) + " - " + str(round(info["main"]["temp_max"])) + " °C" + "\n"
-    information += "Давление: " + str(info["main"]["pressure"]) + " мм.рт.ст., " + "влажность: " + str(info["main"]["humidity"]) + "%" + "\n"
-    speed = info["wind"]["speed"]
-    deg = info["wind"]["deg"]
-    information += "Ветер: " + bofort_scale(speed) + ", " + str(speed) + " м/с, " + rumb(deg)
-    return information
 
 def call_keyboard_first(keyboard, vk, event):
     keyboard.add_button('Получить расписание', color=VkKeyboardColor.NEGATIVE)
@@ -187,7 +204,7 @@ def call_keyboard_schedule(keyboard, vk, event):
     keyboard.add_line()
     keyboard.add_button('какая неделя?', color=VkKeyboardColor.SECONDARY)
     keyboard.add_button('какая группа?', color=VkKeyboardColor.SECONDARY)
-    vk.messages.send(user_id = event.user_id, random_id = get_random_id(), keyboard=keyboard.get_keyboard(), message='Выберете варианты')
+    vk.messages.send(user_id = event.user_id, random_id = get_random_id(), keyboard=keyboard.get_keyboard(), message='Выберите варианты')
 
 def call_keyboard_weather(keyboard, vk, event):
     keyboard.add_button('сейчас', color=VkKeyboardColor.POSITIVE)
@@ -197,7 +214,23 @@ def call_keyboard_weather(keyboard, vk, event):
     keyboard.add_button('на 5 дней', color=VkKeyboardColor.NEGATIVE)
     vk.messages.send(user_id = event.user_id, random_id = get_random_id(), keyboard=keyboard.get_keyboard(), message='Выберете варианты')
 
-def weather_in_time(response, vk_session):
+def get_weather_now():
+    translator = Translator()
+    weather_key = "1e7d1c94703c5b863a60ea656e79de92"
+    response = requests.get("http://api.openweathermap.org/data/2.5/weather?q=moscow&appid=1e7d1c94703c5b863a60ea656e79de92&lang=ru&units=metric")
+    info = response.json()
+    information = ""
+    result = translator.translate(info["weather"][0]["main"], src="en", dest="ru").text
+    information += "Погода в Москве: " + result + "\n"
+    result = info["weather"][0]["description"]
+    information += result + ", " + "температура: " + str(round(info["main"]["temp_min"])) + " - " + str(round(info["main"]["temp_max"])) + " °C" + "\n"
+    information += "Давление: " + str(info["main"]["pressure"]) + " мм.рт.ст., " + "влажность: " + str(info["main"]["humidity"]) + "%" + "\n"
+    speed = info["wind"]["speed"]
+    deg = info["wind"]["deg"]
+    information += "Ветер: " + bofort_scale(speed) + ", " + str(speed) + " м/с, " + rumb(deg)
+    return information
+
+def weather_in_time(response):
     image = requests.get("http://openweathermap.org/img/wn/{}@2x.png".format(response['weather'][0]['icon']), stream=True)
 
     information = ""
@@ -218,49 +251,73 @@ def get_weather_today(day, vk_session, vk, event):
     information = ""
     if (day == "завтра"): data = (datetime.today() + timedelta(1)).date()
     vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
+    counter = 0
     for i in range(len(info["list"])):
         if str(data) in info["list"][i]["dt_txt"]:
             if "6:00:00" in info["list"][i]["dt_txt"]:
                 response = info["list"][i]
-                collect = weather_in_time(response, vk_session)
+                collect = weather_in_time(response)
                 information += "УТРО:\n"
                 attachments = collect[0]
                 information += collect[1] + "\n"
+                counter += 1
                 with open("file1.png", "wb") as f:
                     f.write(attachments.content)
             if "12:00:00" in info["list"][i]["dt_txt"]:
                 response = info["list"][i]
-                collect = weather_in_time(response, vk_session)
+                collect = weather_in_time(response)
                 attachments = collect[0]
                 information += "ДЕНЬ:\n"
                 information += collect[1] + "\n"
+                counter += 1
                 with open("file2.png", "wb") as f:
                     f.write(attachments.content)
             if "18:00:00" in info["list"][i]["dt_txt"]:
                 response = info["list"][i]
-                collect = weather_in_time(response, vk_session)
+                collect = weather_in_time(response)
                 attachments = collect[0]
                 information += "ВЕЧЕР:\n"
                 information += collect[1] + "\n"
+                counter += 1
                 with open("file3.png", "wb") as f:
                     f.write(attachments.content)
             if "21:00:00" in info["list"][i]["dt_txt"]:
                 response = info["list"][i]
-                collect = weather_in_time(response, vk_session)
+                collect = weather_in_time(response)
                 attachments = collect[0]
                 information += "НОЧЬ:\n"
                 information += collect[1] + "\n"
+                counter += 1
                 with open("file4.png", "wb") as f:
                     f.write(attachments.content)
-                img = Image.new('RGBA', (400, 100))
-                img1 = Image.open("file1.png")
-                img2 = Image.open("file2.png")
-                img3 = Image.open("file3.png")
-                img4 = Image.open("file4.png")
-                img.paste(img1, (0, 0))
-                img.paste(img2, (100, 0))
-                img.paste(img3, (200, 0))
-                img.paste(img4, (300, 0))
+                if counter == 4:
+                    img = Image.new('RGBA', (400, 100))
+                    img1 = Image.open("file1.png")
+                    img2 = Image.open("file2.png")
+                    img3 = Image.open("file3.png")
+                    img4 = Image.open("file4.png")
+                    img.paste(img1, (0, 0))
+                    img.paste(img2, (100, 0))
+                    img.paste(img3, (200, 0))
+                    img.paste(img4, (300, 0))
+                elif counter == 3:
+                    img = Image.new('RGBA', (300, 100))
+                    img2 = Image.open("file2.png")
+                    img3 = Image.open("file3.png")
+                    img4 = Image.open("file4.png")
+                    img.paste(img2, (0, 0))
+                    img.paste(img3, (100, 0))
+                    img.paste(img4, (200, 0))
+                elif counter == 2:
+                    img = Image.new('RGBA', (200, 100))
+                    img3 = Image.open("file3.png")
+                    img4 = Image.open("file4.png")
+                    img.paste(img3, (0, 0))
+                    img.paste(img4, (100, 0))
+                elif counter == 1:
+                    img = Image.new('RGBA', (100, 100))
+                    img4 = Image.open("file4.png")
+                    img.paste(img4, (0, 0))
                 img = img.save("image.png")
                 upload = VkUpload(vk_session)
                 photo = upload.photo_messages(photos="image.png")[0]
@@ -270,11 +327,66 @@ def get_weather_today(day, vk_session, vk, event):
                     random_id=get_random_id(),
                     attachment=attachments,
                     message="\n")
-                vk.messages.send(
-                    user_id=event.user_id,
-                    random_id=get_random_id(),
-                    message=information)
+                vk.messages.send(user_id=event.user_id, random_id=get_random_id(), message=information)
                 break
+
+def get_weather_in_5_days(vk_session, vk, event):
+    response = requests.get("http://api.openweathermap.org/data/2.5/forecast?q=moscow&appid=1e7d1c94703c5b863a60ea656e79de92&lang=ru&units=metric")
+    info = response.json()
+    date1 = datetime.today() + timedelta(1)
+    date1 = normalize_date(date1.day) + "." + normalize_date(date1.month)
+    date2 = datetime.today() + timedelta(5)
+    date2 = normalize_date(date2.day) + "." + normalize_date(date2.month)
+    ms = "Погода в Москве c " + date1 + " по " + date2
+    vk.messages.send(user_id=event.user_id, random_id=get_random_id(), message=ms)
+    day = []
+    night = []
+    images = []
+    counter = 0
+    for i in info["list"]:
+        if (counter == 5): break
+        if '03:00:00' in i["dt_txt"]:
+            night.append(str(round(i['main']['temp'])) + ' °C')
+        elif '15:00:00' in i["dt_txt"]:
+            counter += 1
+            day.append(str(round(i['main']['temp'])) + ' °C')
+            images.append(i['weather'][0]['icon'])
+    counter = 0
+    for i in images:
+        counter += 1
+        with open("file{}.png".format(counter), "wb") as f:
+            image=requests.get("http://openweathermap.org/img/wn/{}@2x.png".format(i), stream=True)
+            f.write(image.content)
+    img = Image.new('RGBA', (500, 100))
+    img1 = Image.open("file1.png")
+    img2 = Image.open("file2.png")
+    img3 = Image.open("file3.png")
+    img4 = Image.open("file4.png")
+    img5 = Image.open("file4.png")
+    img.paste(img1, (0, 0))
+    img.paste(img2, (100, 0))
+    img.paste(img3, (200, 0))
+    img.paste(img4, (300, 0))
+    img.paste(img5, (400, 0))
+    img = img.save("image.png")
+    upload = VkUpload(vk_session)
+    photo = upload.photo_messages(photos="image.png")[0]
+    attachments = ("photo{}_{}".format(photo["owner_id"], photo['id']))
+    vk.messages.send(
+        user_id=event.user_id,
+        random_id=get_random_id(),
+        attachment=attachments,
+        message="\n")
+    ms = "\n" + 'ДЕНЬ: '
+    for i in day:
+        ms += i + " // "
+    ms += "\n" + "НОЧЬ: "
+    for i in night:
+        ms += i + " // "
+    vk.messages.send(
+        user_id=event.user_id,
+        random_id=get_random_id(),
+        message=ms)
 
 def get_coronavirus_stat(vk, vk_session, event):
     response = requests.get("https://coronavirusstat.ru/country/russia/")
@@ -409,6 +521,12 @@ def get_coronavirus_stat_by_region(region, vk, event):
 
 def main():
     #shedule_parse()
+    book1 = openpyxl.load_workbook("D:/PythonProjects/Oznakom/file1.xlsx")
+    book2 = openpyxl.load_workbook("D:/PythonProjects/Oznakom/file2.xlsx")
+    book3 = openpyxl.load_workbook("D:/PythonProjects/Oznakom/file3.xlsx")
+    book1 = book1.active
+    book2 = book2.active
+    book3 = book3.active
     token = "8795f2314abfac327507b600196e7b594645de3c7f744b5acd5058e1f36b56b84fbed61db31b092b052fe"
     vk_session = vk_api.VkApi(token=token)
     vk = vk_session.get_api()
@@ -418,6 +536,7 @@ def main():
     #schedule_variants = ["сегодня", "завтра", "эта неделя", "следующая неделя"]
     flag_schedule = False
     flag_weather = False
+    flag_teacher = False
 
     for event in longpoll.listen():
         if event.type == VkEventType.MESSAGE_NEW:
@@ -451,7 +570,12 @@ def main():
 
         elif event.type == VkEventType.MESSAGE_NEW and flag_schedule and event.to_me:
             if event.text != "какая неделя?" and event.text != 'какая группа?':
-                vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=get_correct_schedule(event.text, current_group))
+                if current_group[-1] == '1':
+                    vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=get_correct_schedule(event.text, current_group, book1))
+                elif current_group[-1] == '0':
+                    vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=get_correct_schedule(event.text, current_group, book2))
+                elif current_group[-1] == '9':
+                    vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=get_correct_schedule(event.text, current_group, book3))
             elif event.text == "какая неделя?":
                 first_day = datetime(2022, 2, 7)
                 current_week = datetime.today() - first_day
@@ -471,27 +595,78 @@ def main():
                 ms = "Получить расписание"
                 vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
             else:
-                print(full_message)
-                ms = get_correct_schedule(full_message[1].lower(), current_group)
+                if current_group[-1] == '1':
+                    ms = get_correct_schedule(full_message[1].lower(), current_group, book1)
+                elif current_group[-1] == '0':
+                    ms = get_correct_schedule(full_message[1].lower(), current_group, book2)
+                elif current_group[-1] == '9':
+                    ms = get_correct_schedule(full_message[1].lower(), current_group, book3)
                 vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
 
         elif event.type == VkEventType.MESSAGE_NEW and len(full_message) == 3 and full_message[0].lower() == "бот":
-            ms = get_correct_schedule(full_message[1].lower(), full_message[2].upper())
+            if full_message[2] == '1':
+                ms = get_correct_schedule(full_message[1].lower(), full_message[2].upper(), book1)
+            if full_message[2] == '0':
+                ms = get_correct_schedule(full_message[1].lower(), full_message[2].upper(), book2)
+            if full_message[2] == '9':
+                ms = get_correct_schedule(full_message[1].lower(), full_message[2].upper(), book3)
             vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
         
         elif event.type == VkEventType.MESSAGE_NEW  and event.text.lower() == "в чём смысл жизни?":
             ms = "Эта жизнь хуйня такая, нихуя ты не поймёшь, каждый день охуеваешь, охуевшим и помрёшь!"
             vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
         
+        elif event.type == VkEventType.MESSAGE_NEW and len(full_message) == 2 and full_message[0].lower() == "найти":
+            keyboard = VkKeyboard(one_time=True)
+            call_keyboard_teacher(keyboard, vk, event)
+            name_of_teacher = full_message[1]
+            flag_teacher = True
+
+        elif event.type == VkEventType.MESSAGE_NEW and flag_teacher and event.to_me:
+            DAYS = {0: "Понедельник", 1: "Вторник", 2: "Среда", 3: "Четверг", 4: "Пятница", 5: "Суббота"}
+            if event.text.lower() == "на сегодня":
+                ms, namee = get_correct_teacher_schedule(name_of_teacher, book1, datetime.today())
+                vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message="Показываю расписание на преподавателя " + namee)
+                vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
+            elif event.text.lower() == "на завтра":
+                ms, namee = get_correct_teacher_schedule(name_of_teacher, book1, datetime.today() + timedelta(1))
+                vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message="Показываю расписание на преподавателя " + namee)
+                vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
+            elif event.text.lower() == "на эту неделю":
+                date = datetime.today() - timedelta(datetime.today().weekday())
+                ms, namee = get_correct_teacher_schedule(name_of_teacher, book1, datetime.today())
+                vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message="Показываю расписание на преподавателя " + namee)
+                ms = ''
+                for i in range(6):
+                    ms += DAYS[i] + ":" + "\n"
+                    mmss, namee = get_correct_teacher_schedule(name_of_teacher, book1, date + timedelta(i))
+                    ms += mmss
+                vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
+            elif event.text.lower() == "на следующую неделю":
+                date = datetime.today() - timedelta(datetime.today().weekday()) + timedelta(7)
+                ms, namee = get_correct_teacher_schedule(name_of_teacher, book1, datetime.today())
+                vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message="Показываю расписание на преподавателя " + namee)
+                ms = ''
+                for i in range(6):
+                    ms += DAYS[i] + ":" + "\n"
+                    mmss, namee = get_correct_teacher_schedule(name_of_teacher, book1, date + timedelta(i))
+                    ms += mmss
+                vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
+            flag_teacher = False
+
         elif event.type == VkEventType.MESSAGE_NEW and flag_weather and event.text.lower() == "сейчас":
             ms = get_weather_now()
             vk.messages.send(user_id = event.user_id, random_id = get_random_id(), message=ms)
-            flag_schedule = False
+            flag_weather = False
 
         elif event.type == VkEventType.MESSAGE_NEW and flag_weather and (event.text.lower() == "сегодня" or event.text.lower() == "завтра"):
             get_weather_today(event.text.lower(), vk_session, vk, event)
-            flag_schedule = False
+            flag_weather = False
         
+        elif event.type == VkEventType.MESSAGE_NEW and flag_weather and event.text.lower() == "на 5 дней":
+            get_weather_in_5_days(vk_session, vk, event)
+            flag_weather = False
+
         elif event.type == VkEventType.MESSAGE_NEW and event.text.lower() == "получить статистику по коронавирусу":
             get_coronavirus_stat(vk, vk_session, event)
 
@@ -504,4 +679,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
