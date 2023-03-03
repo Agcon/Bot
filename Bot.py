@@ -3,7 +3,7 @@ import re
 from bs4 import BeautifulSoup
 import requests
 import openpyxl
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta ГОООООООООЙДА!!!!
 import vk_api
 from vk_api.longpoll import VkLongPoll, VkEventType
 from vk_api.utils import get_random_id
